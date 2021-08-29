@@ -40,8 +40,8 @@ option = sys.argv[1]
 
 # hyperparameters
 emb_size = 16
-hidden_size = 256  # size of hidden layer of neurons
-seq_length = 128  # number of steps to unroll the RNN for
+hidden_size = 64  # size of hidden layer of neurons
+seq_length = 32  # number of steps to unroll the RNN for
 learning_rate = 5e-2
 max_updates = 500000
 batch_size = 32
@@ -118,7 +118,7 @@ def forward(inputs, targets, memory):
         # new memory: applying forget gate on the previous memory
         # and then adding the input gate on the candidate memory
         # c_t = f * c_(t-1) + i * c_
-        cs[t] = np.multiply(fs[t], cs[t-1]) + np.multiply(ins[t], c_s[t])
+        cs[t] = np.multiply(fs[t], cs[t - 1]) + np.multiply(ins[t], c_s[t])
 
         # output gate
         #o = sigmoid(Wo * z + bo)
@@ -167,7 +167,69 @@ def backward(activations, clipping=True):
     # back propagation through time starts here
     for t in reversed(range(input_length)):
         # computing the gradients here
-        pass
+        # First step: directly use the loss/softmax derivative given in
+        # the assignment help sheet
+        dy = ps[t] - ls[t]
+
+        # This is the gradient for the computation of the output y[t] from the
+        # new state h[t]: y[t] = Why*h[t]
+        dWhy += np.dot(dy, hs[t].T)
+        dby += np.sum(dy, axis=-1, keepdims=True)
+
+        # h is connected to output y and the next cell state h[t], so
+        # sum up the individual parts
+        dhnext = np.dot(Why.T, dy) + dhnext
+
+        # This is the gradient of the output y[t] w.r.t. the output gate values o.
+        do = np.multiply(np.tanh(cs[t]), dhnext)
+        do_pre_activation = np.multiply(do, dsigmoid(os[t]))
+        dWo += np.dot(do_pre_activation, zs[t].T)
+        dbo += np.sum(do_pre_activation, axis=-1, keepdims=True)
+
+        # c_t with the tanh already applied
+        dcnext_hat = np.multiply(dhnext, os[t])
+        # c_t without tanh and with c_t+1
+        dcnext = np.multiply(dcnext_hat, dtanh(dcnext)) + dcnext
+
+        # Gradient w.r.t. input gate
+        di = np.multiply(c_s[t], dcnext)
+        di_pre_activation = np.multiply(di, dsigmoid(ins[t]))
+        dWi += np.dot(di_pre_activation, zs[t].T)
+        dbi += np.sum(di_pre_activation, axis=-1, keepdims=True)
+
+        # Gradient w.r.t. candidate calculation
+        dc_ = np.multiply(ins[t], dcnext)
+        dc__pre_activation = np.multiply(dc_, dtanh(c_s[t]))
+        dWc += np.dot(dc__pre_activation, zs[t].T)
+        dbc += np.sum(dc__pre_activation, axis=-1, keepdims=True)
+
+        # Gradient w.r.t. forget gate
+        df = np.multiply(cs[t - 1], dcnext)
+        df_pre_activation = np.multiply(df, dsigmoid(fs[t]))
+        dWf += np.dot(df_pre_activation, zs[t].T)
+        dbf += np.sum(df_pre_activation, axis=-1, keepdims=True)
+
+        # Gradients w.r.t. embedding layer (every gate contributes)
+        dwes = (
+            np.dot(Wf[:, hidden_size:].T, df_pre_activation)  +     # Part of forget gate
+            np.dot(Wi[:, hidden_size:].T, di_pre_activation)  +     # Part of input gate
+            np.dot(Wc[:, hidden_size:].T, dc__pre_activation) +     # Part of candiate layer
+            np.dot(Wo[:, hidden_size:].T, do_pre_activation)        # Part of output gate
+        )
+        dWex += np.dot(dwes, xs[t].T)
+
+        # Gradients w.r.t. h_t-1 (every gate contributes)
+        dhnext = (
+            np.dot(Wf[:, :hidden_size].T, df_pre_activation)  +     # Part of forget gate
+            np.dot(Wi[:, :hidden_size].T, di_pre_activation)  +     # Part of input gate
+            np.dot(Wc[:, :hidden_size].T, dc__pre_activation) +     # Part of candiate layer
+            np.dot(Wo[:, :hidden_size].T, do_pre_activation)        # Part of output gate
+        )
+        dcnext = np.multiply(dcnext, fs[t])
+
+        if clipping:
+            for dparam in [dhnext, dcnext]:
+                np.clip(dparam, -5, 5, out=dparam)
 
     # clip to mitigate exploding gradients
     if clipping:
@@ -208,6 +270,10 @@ def sample(memory, seed_ix, n):
         x = np.zeros((vocab_size, 1))
         x[index] = 1
         ixes.append(index)
+
+        # Assign new states
+        h = h_new
+        c = c_new
     return ixes
 
 
@@ -303,7 +369,8 @@ elif option == 'gradcheck':
         relerrorsum = 0
         erroridx = []
 
-        for i in range(weight.size):
+        for i in range(50):
+        # for i in range(weight.size):
 
             # evaluate cost at [x + delta] and [x - delta]
             w = weight.flat[i]
@@ -317,7 +384,8 @@ elif option == 'gradcheck':
             grad_numerical = (loss_positive - loss_negative) / (2 * delta)
             gradnumsum += grad_numerical
             gradanasum += grad_analytic
-            rel_error = abs(grad_analytic - grad_numerical) / abs(grad_numerical + grad_analytic)
+            divisor = abs(grad_numerical + grad_analytic)
+            rel_error = abs(grad_analytic - grad_numerical) / divisor if divisor > 0 else divisor + 1e-12
             if rel_error is None:
                 rel_error = 0.
             relerrorsum += rel_error
@@ -326,7 +394,7 @@ elif option == 'gradcheck':
                 print ('WARNING %f, %f => %e ' % (grad_numerical, grad_analytic, rel_error))
                 countidx += 1
                 erroridx.append(i)
-                
+
         print('For %s found %i bad gradients; with %i total parameters in the vector/matrix!' % (
             name, countidx, weight.size))
         print(' Average numerical grad: %0.9f \n Average analytical grad: %0.9f \n Average relative grad: %0.9f' % (
