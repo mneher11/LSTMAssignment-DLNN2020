@@ -180,7 +180,7 @@ def backward(activations, clipping=True):
         # sum up the individual parts
         dhnext = np.dot(Why.T, dy) + dhnext
 
-        # This is the gradient of the output y[t] w.r.t. the output gate values o.
+        # This is the gradient of the output y[t] w.r.t. the output gate values o
         do = np.multiply(np.tanh(cs[t]), dhnext)
         do_pre_activation = np.multiply(do, dsigmoid(os[t]))
         dWo += np.dot(do_pre_activation, zs[t].T)
@@ -189,7 +189,7 @@ def backward(activations, clipping=True):
         # c_t with the tanh already applied
         dcnext_hat = np.multiply(dhnext, os[t])
         # c_t without tanh and with c_t+1
-        dcnext = np.multiply(dcnext_hat, dtanh(dcnext)) + dcnext
+        dcnext = np.multiply(dcnext_hat, dtanh(cs[t])) + dcnext
 
         # Gradient w.r.t. input gate
         di = np.multiply(c_s[t], dcnext)
@@ -213,7 +213,7 @@ def backward(activations, clipping=True):
         dwes = (
             np.dot(Wf[:, hidden_size:].T, df_pre_activation)  +     # Part of forget gate
             np.dot(Wi[:, hidden_size:].T, di_pre_activation)  +     # Part of input gate
-            np.dot(Wc[:, hidden_size:].T, dc__pre_activation) +     # Part of candiate layer
+            np.dot(Wc[:, hidden_size:].T, dc__pre_activation) +     # Part of candidate layer
             np.dot(Wo[:, hidden_size:].T, do_pre_activation)        # Part of output gate
         )
         dWex += np.dot(dwes, xs[t].T)
@@ -222,7 +222,7 @@ def backward(activations, clipping=True):
         dhnext = (
             np.dot(Wf[:, :hidden_size].T, df_pre_activation)  +     # Part of forget gate
             np.dot(Wi[:, :hidden_size].T, di_pre_activation)  +     # Part of input gate
-            np.dot(Wc[:, :hidden_size].T, dc__pre_activation) +     # Part of candiate layer
+            np.dot(Wc[:, :hidden_size].T, dc__pre_activation) +     # Part of candidate layer
             np.dot(Wo[:, :hidden_size].T, do_pre_activation)        # Part of output gate
         )
         dcnext = np.multiply(dcnext, fs[t])
@@ -358,6 +358,9 @@ elif option == 'gradcheck':
     for weight, grad, name in zip([Wf, Wi, Wo, Wc, bf, bi, bo, bc, Wex, Why, by],
                                   [dWf, dWi, dWo, dWc, dbf, dbi, dbo, dbc, dWex, dWhy, dby],
                                   ['Wf', 'Wi', 'Wo', 'Wc', 'bf', 'bi', 'bo', 'bc', 'Wex', 'Why', 'by']):
+
+        # if name != "Wex":
+        #     continue
 
         str_ = ("Dimensions dont match between weight and gradient %s and %s." % (weight.shape, grad.shape))
         assert (weight.shape == grad.shape), str_
