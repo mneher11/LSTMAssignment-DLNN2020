@@ -40,8 +40,8 @@ option = sys.argv[1]
 
 # hyperparameters
 emb_size = 16
-hidden_size = 64  # size of hidden layer of neurons
-seq_length = 32  # number of steps to unroll the RNN for
+hidden_size = 256  # size of hidden layer of neurons
+seq_length = 128  # number of steps to unroll the RNN for
 learning_rate = 5e-2
 max_updates = 500000
 batch_size = 32
@@ -189,7 +189,7 @@ def backward(activations, clipping=True):
         # c_t with the tanh already applied
         dcnext_hat = np.multiply(dhnext, os[t])
         # c_t without tanh and with c_t+1
-        dcnext = np.multiply(dcnext_hat, dtanh(cs[t])) + dcnext
+        dcnext = np.multiply(dcnext_hat, dtanh(np.tanh(cs[t]))) + dcnext
 
         # Gradient w.r.t. input gate
         di = np.multiply(c_s[t], dcnext)
